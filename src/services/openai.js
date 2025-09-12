@@ -126,11 +126,29 @@ class OpenAIService {
 
       const ws = new WebSocket(wsUrl, { headers });
 
-      // Setup WebSocket event handlers for SIP calls
+      // Setup WebSocket event handlers for SIP calls  
       this.setupOpenAISipWebSocketHandlers(ws, callId, sessionData);
 
       // Store WebSocket connection
       this.websockets.set(callId, ws);
+
+      // Send greeting immediately when connected (don't wait for 'open' event)
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          logger.logOpenAI(callId, 'sending_immediate_greeting');
+          
+          this.sendEvent(ws, callId, {
+            type: 'response.create',
+            response: {
+              instructions: `¡Gracias por llamar a ${config.business.companyName}! ¿En qué puedo ayudarte hoy?`
+            }
+          });
+        } else {
+          logger.logOpenAI(callId, 'websocket_not_ready_for_greeting', {
+            readyState: ws.readyState
+          });
+        }
+      }, 1000); // Wait 1 second for connection to be ready
 
       logger.logOpenAI(callId, 'openai_sip_session_created', {
         sessionId: sessionData.sessionId,
