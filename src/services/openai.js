@@ -157,6 +157,7 @@ class OpenAIService {
       logger.logOpenAI(callId, 'openai_sip_websocket_connected');
       
       // Send greeting immediately as per official Twilio+OpenAI documentation
+      // For SIP calls, session is already configured via /accept - only send response.create
       const responseCreate = {
         type: 'response.create',
         response: {
@@ -287,8 +288,15 @@ class OpenAIService {
   }
 
   sendSessionUpdate(ws, callSid) {
-    // Check if this is a SIP session - skip session.update for SIP calls
+    // Debug: Check what type of session this is
     const sessionData = this.activeSessions.get(callSid);
+    logger.logOpenAI(callSid, 'sendSessionUpdate_called', {
+      hasSessionData: !!sessionData,
+      sessionType: sessionData?.type,
+      allSessionTypes: Array.from(this.activeSessions.values()).map(s => ({ id: s.callSid, type: s.type }))
+    });
+    
+    // Check if this is a SIP session - skip session.update for SIP calls
     if (sessionData && sessionData.type === 'openai_sip') {
       logger.logOpenAI(callSid, 'skipping_session_update_for_sip');
       return; // Don't send session.update for SIP calls - already configured via /accept
