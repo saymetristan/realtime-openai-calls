@@ -69,11 +69,21 @@ router.post('/twilio/sip', validateTwilioSignature, async (req, res) => {
       // This is where we bridge to OpenAI Realtime
       logger.logCall(CallSid, 'bridging_to_openai');
 
-      // Connect to OpenAI Realtime via Media Stream
-      const connect = twiml.connect();
-      connect.stream({
-        url: `wss://api.openai.com/v1/realtime?model=${config.openai.model}`,
-        name: `openai_stream_${CallSid}`
+      // For now, let's use basic text-to-speech while we configure proper audio
+      twiml.say({
+        voice: 'alice',
+        language: 'es-MX'
+      }, '¡Hola! Soy tu asistente de inteligencia artificial de VADAI Agency. ¿En qué puedo ayudarte hoy?');
+      
+      // Pause to let user speak
+      twiml.pause({ length: 2 });
+      
+      // For now, let's record their response
+      twiml.record({
+        maxLength: 30,
+        action: `/webhook/twilio/recording/${CallSid}`,
+        method: 'POST',
+        playBeep: false
       });
 
       // Start the OpenAI session management
