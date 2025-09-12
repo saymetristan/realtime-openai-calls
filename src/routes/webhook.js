@@ -121,11 +121,21 @@ router.post('/openai/sip', async (req, res) => {
       if (acceptResponse.ok) {
         logger.logCall(call_id, 'call_accepted_successfully');
         
-             // Connect WebSocket after short delay as per official Twilio+OpenAI docs
-             const connectWithDelay = async (delay = 1000) => {
-               setTimeout(async () => {
+             // Retry mechanism with exponential backoff for WebSocket connection
+             const connectWithRetries = async () => {
+               const retryDelays = [0, 2000, 5000, 10000, 15000]; // 0s, 2s, 5s, 10s, 15s
+               
+               for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+                 const delay = retryDelays[attempt];
+                 
+                 await new Promise(resolve => setTimeout(resolve, delay));
+                 
                  try {
-                   logger.logCall(call_id, 'websocket_connection_attempt', { delayMs: delay });
+                   logger.logCall(call_id, 'websocket_connection_attempt', { 
+                     attempt: attempt + 1, 
+                     totalAttempts: retryDelays.length,
+                     delayMs: delay 
+                   });
                    
                    await OpenAIService.initializeOpenAISipSession(call_id, {
                      from,
@@ -134,15 +144,31 @@ router.post('/openai/sip', async (req, res) => {
                      acceptedAt: new Date()
                    });
                    
-                   logger.logCall(call_id, 'websocket_session_started');
+                   logger.logCall(call_id, 'websocket_session_started_success', { 
+                     successfulAttempt: attempt + 1 
+                   });
+                   return; // Success - exit retry loop
+                   
                  } catch (error) {
-                   logger.error(`WebSocket connection failed for call ${call_id}:`, error);
+                   logger.error(`WebSocket attempt ${attempt + 1}/${retryDelays.length} failed for call ${call_id}:`, {
+                     attempt: attempt + 1,
+                     delayMs: delay,
+                     error: error.message,
+                     stack: error.stack
+                   });
+                   
+                   // If this was the last attempt, give up
+                   if (attempt === retryDelays.length - 1) {
+                     logger.error(`All WebSocket attempts failed for call ${call_id} - giving up`);
+                   }
                  }
-               }, delay);
+               }
              };
              
-             // Connect immediately as per official Twilio+OpenAI docs (delay=0)
-             connectWithDelay(0);
+             // Start retry sequence immediately 
+             connectWithRetries().catch(error => {
+               logger.error(`Critical error in retry mechanism for call ${call_id}:`, error);
+             });
       } else {
         const errorText = await acceptResponse.text();
         logger.error(`Failed to accept call ${call_id}:`, errorText);
