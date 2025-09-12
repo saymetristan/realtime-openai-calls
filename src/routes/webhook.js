@@ -15,6 +15,12 @@ const validateTwilioSignature = (req, res, next) => {
     return next();
   }
 
+  // Skip validation if explicitly disabled
+  if (process.env.DISABLE_WEBHOOK_VALIDATION === 'true') {
+    logger.warn('Skipping Twilio signature validation - disabled via env var');
+    return next();
+  }
+
   const twilioSignature = req.get('X-Twilio-Signature');
   const url = `${config.serverUrl}${req.originalUrl}`;
   
