@@ -121,9 +121,9 @@ router.post('/openai/sip', async (req, res) => {
       if (acceptResponse.ok) {
         logger.logCall(call_id, 'call_accepted_successfully');
         
-        // Connect WebSocket immediately as per official Twilio+OpenAI docs
-        const connectWithRetry = async (attempt = 1, maxAttempts = 5) => {
-          const delay = attempt === 1 ? 0 : Math.min(attempt * 2000, 10000); // 0, 2s, 4s, 6s, 8s
+             // Connect WebSocket with initial delay - OpenAI needs time to activate session
+             const connectWithRetry = async (attempt = 1, maxAttempts = 5) => {
+               const delay = attempt === 1 ? 3000 : Math.min(attempt * 2000 + 3000, 15000); // 3s, 5s, 7s, 9s, 11s
           
           setTimeout(async () => {
             try {
