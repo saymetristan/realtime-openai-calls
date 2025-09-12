@@ -132,8 +132,8 @@ class OpenAIService {
       // Store WebSocket connection
       this.websockets.set(callId, ws);
 
-      // Note: For SIP calls, only use setupOpenAISipWebSocketHandlers
-      // The 'open' event handler will send the greeting when ready
+      // Note: Following official Twilio+OpenAI documentation pattern
+      // Greeting is sent directly in ws.on('open') event handler
 
       logger.logOpenAI(callId, 'openai_sip_session_created', {
         sessionId: sessionData.sessionId,
@@ -156,14 +156,16 @@ class OpenAIService {
     ws.on('open', () => {
       logger.logOpenAI(callId, 'openai_sip_websocket_connected');
       
-      // For SIP calls, DO NOT send session.update - only response.create
-      // The session is already configured via /accept call
-      this.sendEvent(ws, callId, {
+      // Send greeting immediately as per official Twilio+OpenAI documentation
+      const responseCreate = {
         type: 'response.create',
         response: {
           instructions: `¡Gracias por llamar a ${config.business.companyName}! ¿En qué puedo ayudarte hoy?`
         }
-      });
+      };
+      
+      ws.send(JSON.stringify(responseCreate));
+      logger.logOpenAI(callId, 'sent_response_create_greeting');
       
       // Update session status
       sessionData.status = 'connected';

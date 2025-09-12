@@ -121,60 +121,26 @@ router.post('/openai/sip', async (req, res) => {
       if (acceptResponse.ok) {
         logger.logCall(call_id, 'call_accepted_successfully');
         
-             // Connect WebSocket with aggressive delay - OpenAI needs time to fully activate session
-             const connectWithRetry = async (attempt = 1, maxAttempts = 5) => {
-               const delay = attempt === 1 ? 10000 : Math.min(attempt * 3000 + 10000, 25000); // 10s, 13s, 16s, 19s, 22s
-          
-          setTimeout(async () => {
-            try {
-              logger.logCall(call_id, `websocket_connection_attempt_${attempt}`);
-              
-              // Verify call status before WebSocket connection
-              const statusResponse = await fetch(`https://api.openai.com/v1/realtime/calls/${call_id}`, {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${config.openai.apiKey}`,
-                  'Content-Type': 'application/json'
-                }
-              });
-              
-              if (statusResponse.ok) {
-                const callStatus = await statusResponse.json();
-                logger.logCall(call_id, `call_status_verified`, {
-                  status: callStatus.status,
-                  created_at: callStatus.created_at
-                });
-              } else {
-                logger.logCall(call_id, `call_status_check_failed`, {
-                  status: statusResponse.status,
-                  statusText: statusResponse.statusText
-                });
-                // Continue anyway - status endpoint might not be available
-              }
-              
-              await OpenAIService.initializeOpenAISipSession(call_id, {
-                from,
-                to,
-                sipHeaders: sip_headers,
-                acceptedAt: new Date(),
-                attempt
-              });
-              
-              logger.logCall(call_id, `websocket_session_started_attempt_${attempt}`);
-            } catch (error) {
-              logger.error(`WebSocket attempt ${attempt} failed for call ${call_id}:`, error);
-              
-              if (attempt < maxAttempts && (error.message?.includes('404') || error.message?.includes('Unexpected server response'))) {
-                logger.logCall(call_id, `websocket_retry_scheduling_attempt_${attempt + 1}`);
-                connectWithRetry(attempt + 1, maxAttempts);
-              } else {
-                logger.error(`All WebSocket attempts failed for call ${call_id} after ${attempt} attempts`);
-              }
-            }
-          }, delay);
-        };
-        
-        connectWithRetry();
+             // Connect WebSocket immediately as per official Twilio+OpenAI docs
+             const connectWebSocket = async () => {
+               try {
+                 logger.logCall(call_id, 'websocket_connection_attempt');
+                 
+                 await OpenAIService.initializeOpenAISipSession(call_id, {
+                   from,
+                   to,
+                   sipHeaders: sip_headers,
+                   acceptedAt: new Date()
+                 });
+                 
+                 logger.logCall(call_id, 'websocket_session_started');
+               } catch (error) {
+                 logger.error(`WebSocket connection failed for call ${call_id}:`, error);
+               }
+             };
+             
+             // Connect immediately (0 delay) as per official Twilio documentation
+             connectWebSocket();
       } else {
         const errorText = await acceptResponse.text();
         logger.error(`Failed to accept call ${call_id}:`, errorText);
