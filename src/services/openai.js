@@ -81,6 +81,65 @@ class OpenAIService {
     }
   }
 
+  async initializeOpenAISipSession(callId, callData) {
+    try {
+      logger.logOpenAI(callId, 'initializing_openai_sip_session', callData);
+
+      // Create session data
+      const sessionData = {
+        callSid: callId,
+        callData,
+        sessionId: uuidv4(),
+        startTime: new Date(),
+        status: 'initializing',
+        events: [],
+        metadata: callData.metadata || {},
+        type: 'openai_sip'
+      };
+
+      // Store session
+      this.activeSessions.set(callId, sessionData);
+
+      // Connect to OpenAI Realtime WebSocket using call_id (OpenAI SIP native)
+      const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${callId}`;
+      const headers = {
+        'Authorization': `Bearer ${config.openai.apiKey}`,
+        'OpenAI-Beta': 'realtime=v1'
+      };
+
+      if (config.openai.organization) {
+        headers['OpenAI-Organization'] = config.openai.organization;
+      }
+
+      if (config.openai.project) {
+        headers['OpenAI-Project'] = config.openai.project;
+      }
+
+      const ws = new WebSocket(wsUrl, { headers });
+
+      // Setup WebSocket event handlers
+      this.setupWebSocketHandlers(ws, callId, sessionData);
+
+      // Store WebSocket connection
+      this.websockets.set(callId, ws);
+
+      logger.logOpenAI(callId, 'openai_sip_session_created', {
+        sessionId: sessionData.sessionId,
+        wsUrl
+      });
+
+      return sessionData;
+    } catch (error) {
+      logger.error(`Failed to initialize OpenAI SIP session for call ${callId}:`, error);
+      
+      // Cleanup on error
+      this.activeSessions.delete(callId);
+      this.websockets.delete(callId);
+      
+      throw error;
+    }
+  }
+
   setupWebSocketHandlers(ws, callSid, sessionData) {
     ws.on('open', () => {
       logger.logOpenAI(callSid, 'websocket_connected');

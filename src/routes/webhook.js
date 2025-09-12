@@ -36,7 +36,52 @@ const validateTwilioSignature = (req, res, next) => {
   next();
 };
 
-// Main SIP webhook endpoint - This is where the magic happens
+// OpenAI SIP webhook endpoint - This is the new native flow
+router.post('/openai/sip', async (req, res) => {
+  try {
+    const { type, data } = req.body;
+    
+    logger.logWebhook('OPENAI_SIP', type, {
+      eventId: req.body.id,
+      callId: data?.call_id,
+      sipHeaders: data?.sip_headers
+    });
+
+    if (type === 'realtime.call.incoming') {
+      const { call_id, sip_headers } = data;
+      
+      // Extract phone numbers from SIP headers
+      const fromHeader = sip_headers.find(h => h.name === 'From');
+      const toHeader = sip_headers.find(h => h.name === 'To');
+      const callIdHeader = sip_headers.find(h => h.name === 'Call-ID');
+      
+      const from = fromHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
+      const to = toHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
+      
+      logger.logCall(call_id, 'openai_sip_call_incoming', {
+        from,
+        to,
+        callIdHeader: callIdHeader?.value
+      });
+
+      // Connect to OpenAI using the call_id
+      await OpenAIService.initializeOpenAISipSession(call_id, {
+        from,
+        to,
+        sipHeaders: sip_headers
+      });
+
+      logger.logCall(call_id, 'openai_sip_session_initialized');
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logger.error('Error in OpenAI SIP webhook:', error);
+    res.status(500).json({ error: 'Failed to process OpenAI webhook' });
+  }
+});
+
+// Twilio SIP webhook endpoint - Keep for backward compatibility
 router.post('/twilio/sip', validateTwilioSignature, async (req, res) => {
   try {
     const {
@@ -205,26 +250,6 @@ router.post('/twilio/status', validateTwilioSignature, (req, res) => {
   });
   
   res.status(200).json({ received: true });
-});
-
-// OpenAI webhook (if needed for server-side controls)
-router.post('/openai/:callId', async (req, res) => {
-  const { callId } = req.params;
-  const event = req.body;
-  
-  logger.logWebhook('OPENAI', event.type || 'unknown', {
-    callId,
-    event
-  });
-  
-  try {
-    // Handle OpenAI events
-    await OpenAIService.handleWebhookEvent(callId, event);
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error('Error handling OpenAI webhook:', error);
-    res.status(500).json({ error: 'Failed to process webhook' });
-  }
 });
 
 // Test webhook endpoint (development only)
