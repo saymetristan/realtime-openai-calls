@@ -144,7 +144,8 @@ class OpenAIService {
     ws.on('open', () => {
       logger.logOpenAI(callId, 'openai_sip_websocket_connected');
       
-      // Send initial greeting response as shown in OpenAI docs
+      // For SIP calls, the session is already configured via /accept call
+      // Just send the initial greeting response
       this.sendEvent(ws, callId, {
         type: 'response.create',
         response: {
@@ -160,7 +161,7 @@ class OpenAIService {
     ws.on('message', (data) => {
       try {
         const event = JSON.parse(data.toString());
-        this.handleServerEvent(callId, event);
+        this.handleSipServerEvent(callId, event);
       } catch (error) {
         logger.error(`Error parsing OpenAI SIP message for call ${callId}:`, error);
       }
@@ -225,6 +226,50 @@ class OpenAIService {
       // Cleanup
       this.cleanupCallSession(callSid);
     });
+  }
+
+  handleSipServerEvent(callId, event) {
+    const sessionData = this.activeSessions.get(callId);
+    if (!sessionData) {
+      logger.warn(`Received SIP event for unknown call ${callId}:`, event.type);
+      return;
+    }
+
+    // Log event
+    sessionData.events.push({
+      type: event.type,
+      timestamp: new Date(),
+      data: event
+    });
+
+    logger.logOpenAI(callId, `sip_event_${event.type}`, {
+      eventId: event.event_id
+    });
+
+    // Handle specific events (same as regular but no session updates)
+    switch (event.type) {
+      case 'session.created':
+        logger.logOpenAI(callId, 'sip_session_active');
+        break;
+        
+      case 'response.function_call_arguments.done':
+        this.handleFunctionCall(callId, event);
+        break;
+        
+      case 'response.done':
+        this.handleResponseDone(callId, event);
+        break;
+        
+      case 'error':
+        this.handleError(callId, event);
+        break;
+        
+      default:
+        // Log other events for debugging
+        if (config.logging.debugMode) {
+          logger.debug(`Unhandled SIP event: ${event.type}`, event);
+        }
+    }
   }
 
   sendSessionUpdate(ws, callSid) {
