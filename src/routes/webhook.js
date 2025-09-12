@@ -121,13 +121,36 @@ router.post('/openai/sip', async (req, res) => {
       if (acceptResponse.ok) {
         logger.logCall(call_id, 'call_accepted_successfully');
         
-             // Connect WebSocket with initial delay - OpenAI needs time to activate session
+             // Connect WebSocket with aggressive delay - OpenAI needs time to fully activate session
              const connectWithRetry = async (attempt = 1, maxAttempts = 5) => {
-               const delay = attempt === 1 ? 3000 : Math.min(attempt * 2000 + 3000, 15000); // 3s, 5s, 7s, 9s, 11s
+               const delay = attempt === 1 ? 10000 : Math.min(attempt * 3000 + 10000, 25000); // 10s, 13s, 16s, 19s, 22s
           
           setTimeout(async () => {
             try {
               logger.logCall(call_id, `websocket_connection_attempt_${attempt}`);
+              
+              // Verify call status before WebSocket connection
+              const statusResponse = await fetch(`https://api.openai.com/v1/realtime/calls/${call_id}`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${config.openai.apiKey}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (statusResponse.ok) {
+                const callStatus = await statusResponse.json();
+                logger.logCall(call_id, `call_status_verified`, {
+                  status: callStatus.status,
+                  created_at: callStatus.created_at
+                });
+              } else {
+                logger.logCall(call_id, `call_status_check_failed`, {
+                  status: statusResponse.status,
+                  statusText: statusResponse.statusText
+                });
+                // Continue anyway - status endpoint might not be available
+              }
               
               await OpenAIService.initializeOpenAISipSession(call_id, {
                 from,
