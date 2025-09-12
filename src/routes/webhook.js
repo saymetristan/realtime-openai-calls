@@ -121,26 +121,28 @@ router.post('/openai/sip', async (req, res) => {
       if (acceptResponse.ok) {
         logger.logCall(call_id, 'call_accepted_successfully');
         
-             // Connect WebSocket immediately as per official Twilio+OpenAI docs
-             const connectWebSocket = async () => {
-               try {
-                 logger.logCall(call_id, 'websocket_connection_attempt');
-                 
-                 await OpenAIService.initializeOpenAISipSession(call_id, {
-                   from,
-                   to,
-                   sipHeaders: sip_headers,
-                   acceptedAt: new Date()
-                 });
-                 
-                 logger.logCall(call_id, 'websocket_session_started');
-               } catch (error) {
-                 logger.error(`WebSocket connection failed for call ${call_id}:`, error);
-               }
+             // Connect WebSocket after short delay as per official Twilio+OpenAI docs
+             const connectWithDelay = async (delay = 1000) => {
+               setTimeout(async () => {
+                 try {
+                   logger.logCall(call_id, 'websocket_connection_attempt', { delayMs: delay });
+                   
+                   await OpenAIService.initializeOpenAISipSession(call_id, {
+                     from,
+                     to,
+                     sipHeaders: sip_headers,
+                     acceptedAt: new Date()
+                   });
+                   
+                   logger.logCall(call_id, 'websocket_session_started');
+                 } catch (error) {
+                   logger.error(`WebSocket connection failed for call ${call_id}:`, error);
+                 }
+               }, delay);
              };
              
-             // Connect immediately (0 delay) as per official Twilio documentation
-             connectWebSocket();
+             // Connect with short delay as per official documentation default (1000ms)
+             connectWithDelay(1000);
       } else {
         const errorText = await acceptResponse.text();
         logger.error(`Failed to accept call ${call_id}:`, errorText);
