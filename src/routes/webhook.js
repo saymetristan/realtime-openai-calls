@@ -167,39 +167,63 @@ router.post('/openai/sip', async (req, res) => {
     
     res.status(500).json({ error: 'Failed to process OpenAI webhook' });
   }
-  });
+});
 
-// Bridge endpoint - Redirects Twilio calls to OpenAI SIP
+// Bridge endpoint - Redirects Twilio calls to OpenAI SIP (Works with trial accounts)
 router.post('/twilio/bridge', validateTwilioSignature, async (req, res) => {
   try {
-    const { CallSid, From, To } = req.body;
+    const { CallSid, From, To, CallStatus } = req.body;
     
     logger.logWebhook('TWILIO_BRIDGE', 'redirecting_to_openai_sip', {
       callSid: CallSid,
       from: From,
-      to: To
+      to: To,
+      status: CallStatus
     });
 
     const twiml = new twilio.twiml.VoiceResponse();
     
-    // Redirect to OpenAI SIP endpoint
-    twiml.dial().sip(`proj_1REI1KIEcZ2mn9Hr1AIKQ6Br@sip.api.openai.com;transport=tls`);
+    if (CallStatus === 'ringing') {
+      // Redirect to OpenAI SIP endpoint using Dial + SIP
+      const dial = twiml.dial({
+        timeout: 30,
+        record: false
+      });
+      
+      dial.sip(`proj_1REI1KIEcZ2mn9Hr1AIKQ6Br@sip.api.openai.com;transport=tls`);
+      
+      logger.logCall(CallSid, 'bridging_call_to_openai_sip');
+    } else {
+      // Handle other call statuses
+      twiml.say({
+        voice: 'alice',
+        language: 'es-MX'
+      }, 'Lo siento, no pude procesar tu llamada en este momento.');
+    }
     
     res.type('text/xml');
     res.send(twiml.toString());
+    
+    logger.logCall(CallSid, 'twiml_response_sent', {
+      twimlLength: twiml.toString().length
+    });
+    
   } catch (error) {
     logger.error('Error in bridge webhook:', error);
     
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say('Sorry, there was an error connecting your call.');
+    twiml.say({
+      voice: 'alice', 
+      language: 'es-MX'
+    }, 'Lo siento, hubo un error al conectar tu llamada.');
     twiml.hangup();
     
     res.type('text/xml');
     res.send(twiml.toString());
   }
 });
-  
-  // Twilio SIP webhook endpoint - Keep for backward compatibility
+
+// Twilio SIP webhook endpoint - Keep for backward compatibility
 router.post('/twilio/sip', validateTwilioSignature, async (req, res) => {
   try {
     const {
