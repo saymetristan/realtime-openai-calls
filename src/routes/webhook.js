@@ -36,47 +36,119 @@ const validateTwilioSignature = (req, res, next) => {
   next();
 };
 
-// OpenAI SIP webhook endpoint - This is the new native flow
+// OpenAI SIP webhook endpoint - Official OpenAI SIP flow
 router.post('/openai/sip', async (req, res) => {
   try {
     const { type, data } = req.body;
     
     logger.logWebhook('OPENAI_SIP', type, {
       eventId: req.body.id,
-      callId: data?.call_id,
-      sipHeaders: data?.sip_headers
+      callId: data?.call_id
     });
 
     if (type === 'realtime.call.incoming') {
-      const { call_id, sip_headers } = data;
-      
-      // Extract phone numbers from SIP headers
-      const fromHeader = sip_headers.find(h => h.name === 'From');
-      const toHeader = sip_headers.find(h => h.name === 'To');
-      const callIdHeader = sip_headers.find(h => h.name === 'Call-ID');
-      
-      const from = fromHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
-      const to = toHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
+      const { call_id } = data;
       
       logger.logCall(call_id, 'openai_sip_call_incoming', {
-        from,
-        to,
-        callIdHeader: callIdHeader?.value
+        callId: call_id
       });
 
-      // Connect to OpenAI using the call_id
-      await OpenAIService.initializeOpenAISipSession(call_id, {
-        from,
-        to,
-        sipHeaders: sip_headers
+      // Accept the call using OpenAI REST API
+      const acceptResponse = await fetch(`https://api.openai.com/v1/realtime/calls/${call_id}/accept`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.openai.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: 'realtime',
+          instructions: config.business.defaultInstructions,
+          model: config.openai.model,
+          voice: config.openai.voice,
+          input_audio_format: config.openai.audioFormat,
+          output_audio_format: config.openai.audioFormat,
+          input_audio_transcription: {
+            model: 'whisper-1'
+          },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 200
+          },
+          tools: config.features.enableFunctionCalling ? [
+            {
+              type: 'function',
+              name: 'get_current_time',
+              description: 'Get the current time and date',
+              parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+              }
+            },
+            {
+              type: 'function',
+              name: 'transfer_to_human',
+              description: 'Transfer the call to a human agent',
+              parameters: {
+                type: 'object',
+                properties: {
+                  reason: {
+                    type: 'string',
+                    description: 'Reason for transfer'
+                  }
+                },
+                required: ['reason']
+              }
+            }
+          ] : []
+        })
       });
 
-      logger.logCall(call_id, 'openai_sip_session_initialized');
+      if (acceptResponse.ok) {
+        logger.logCall(call_id, 'call_accepted');
+        
+        // Start WebSocket connection to monitor/control the call
+        await OpenAIService.initializeOpenAISipSession(call_id, {
+          callId: call_id,
+          acceptedAt: new Date()
+        });
+
+        logger.logCall(call_id, 'websocket_session_started');
+      } else {
+        logger.error(`Failed to accept call ${call_id}:`, await acceptResponse.text());
+        
+        // Reject the call if accept fails
+        await fetch(`https://api.openai.com/v1/realtime/calls/${call_id}/reject`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.openai.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
     }
 
     res.status(200).json({ received: true });
   } catch (error) {
     logger.error('Error in OpenAI SIP webhook:', error);
+    
+    // Try to reject the call on error
+    if (data?.call_id) {
+      try {
+        await fetch(`https://api.openai.com/v1/realtime/calls/${data.call_id}/reject`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.openai.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (rejectError) {
+        logger.error('Failed to reject call after error:', rejectError);
+      }
+    }
+    
     res.status(500).json({ error: 'Failed to process OpenAI webhook' });
   }
 });

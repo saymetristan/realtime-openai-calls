@@ -117,8 +117,8 @@ class OpenAIService {
 
       const ws = new WebSocket(wsUrl, { headers });
 
-      // Setup WebSocket event handlers
-      this.setupWebSocketHandlers(ws, callId, sessionData);
+      // Setup WebSocket event handlers for SIP
+      this.setupOpenAISipWebSocketHandlers(ws, callId, sessionData);
 
       // Store WebSocket connection
       this.websockets.set(callId, ws);
@@ -137,6 +137,96 @@ class OpenAIService {
       this.websockets.delete(callId);
       
       throw error;
+    }
+  }
+
+  setupOpenAISipWebSocketHandlers(ws, callId, sessionData) {
+    ws.on('open', () => {
+      logger.logOpenAI(callId, 'openai_sip_websocket_connected');
+      
+      // Send initial greeting response as shown in OpenAI docs
+      this.sendEvent(ws, callId, {
+        type: 'response.create',
+        response: {
+          instructions: `¡Hola! Gracias por llamar a ${config.business.companyName}. ¿En qué puedo ayudarte hoy?`
+        }
+      });
+      
+      // Update session status
+      sessionData.status = 'connected';
+      sessionData.connectedAt = new Date();
+    });
+
+    ws.on('message', (data) => {
+      try {
+        const event = JSON.parse(data.toString());
+        this.handleOpenAISipServerEvent(callId, event);
+      } catch (error) {
+        logger.error(`Error parsing OpenAI SIP message for call ${callId}:`, error);
+      }
+    });
+
+    ws.on('error', (error) => {
+      logger.error(`OpenAI SIP WebSocket error for call ${callId}:`, error);
+      
+      // Update session status
+      if (this.activeSessions.has(callId)) {
+        this.activeSessions.get(callId).status = 'error';
+      }
+    });
+
+    ws.on('close', (code, reason) => {
+      logger.logOpenAI(callId, 'openai_sip_websocket_closed', {
+        code,
+        reason: reason.toString()
+      });
+      
+      // Cleanup
+      this.cleanupCallSession(callId);
+    });
+  }
+
+  handleOpenAISipServerEvent(callId, event) {
+    const sessionData = this.activeSessions.get(callId);
+    if (!sessionData) {
+      logger.warn(`Received OpenAI SIP event for unknown call ${callId}:`, event.type);
+      return;
+    }
+
+    // Log event
+    sessionData.events.push({
+      type: event.type,
+      timestamp: new Date(),
+      data: event
+    });
+
+    logger.logOpenAI(callId, `sip_event_${event.type}`, {
+      eventId: event.event_id
+    });
+
+    // Handle specific events
+    switch (event.type) {
+      case 'session.created':
+        this.handleSessionCreated(callId, event);
+        break;
+        
+      case 'response.function_call_arguments.done':
+        this.handleFunctionCall(callId, event);
+        break;
+        
+      case 'response.done':
+        this.handleResponseDone(callId, event);
+        break;
+        
+      case 'error':
+        this.handleError(callId, event);
+        break;
+        
+      default:
+        // Log other events for debugging
+        if (config.logging.debugMode) {
+          logger.debug(`Unhandled OpenAI SIP event: ${event.type}`, event);
+        }
     }
   }
 
