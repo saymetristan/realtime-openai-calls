@@ -169,6 +169,36 @@ router.post('/openai/sip', async (req, res) => {
   }
 });
 
+// Bridge endpoint - Redirects Twilio calls to OpenAI SIP
+router.post('/twilio/bridge', validateTwilioSignature, async (req, res) => {
+  try {
+    const { CallSid, From, To } = req.body;
+    
+    logger.logWebhook('TWILIO_BRIDGE', 'redirecting_to_openai_sip', {
+      callSid: CallSid,
+      from: From,
+      to: To
+    });
+
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    // Redirect to OpenAI SIP endpoint
+    twiml.dial().sip(`proj_1REI1KIEcZ2mn9Hr1AIKQ6Br@sip.api.openai.com;transport=tls`);
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  } catch (error) {
+    logger.error('Error in bridge webhook:', error);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say('Sorry, there was an error connecting your call.');
+    twiml.hangup();
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
 // Twilio SIP webhook endpoint - Keep for backward compatibility
 router.post('/twilio/sip', validateTwilioSignature, async (req, res) => {
   try {
