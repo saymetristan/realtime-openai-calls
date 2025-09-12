@@ -122,6 +122,7 @@ router.post('/openai/sip', async (req, res) => {
         logger.logCall(call_id, 'call_accepted_successfully');
         
         // Wait for OpenAI to activate the session before connecting WebSocket
+        // First attempt after 5 seconds
         setTimeout(async () => {
           try {
             await OpenAIService.initializeOpenAISipSession(call_id, {
@@ -132,9 +133,27 @@ router.post('/openai/sip', async (req, res) => {
             });
             logger.logCall(call_id, 'websocket_session_started');
           } catch (error) {
-            logger.error(`Failed to initialize WebSocket for call ${call_id}:`, error);
+            logger.error(`WebSocket attempt 1 failed for call ${call_id}:`, error);
+            
+            // Retry after 5 more seconds if 404 error
+            if (error.message?.includes('404')) {
+              logger.logCall(call_id, 'websocket_retry_attempt_2');
+              setTimeout(async () => {
+                try {
+                  await OpenAIService.initializeOpenAISipSession(call_id, {
+                    from,
+                    to,
+                    sipHeaders: sip_headers,
+                    acceptedAt: new Date()
+                  });
+                  logger.logCall(call_id, 'websocket_session_started_retry');
+                } catch (retryError) {
+                  logger.error(`Final WebSocket attempt failed for call ${call_id}:`, retryError);
+                }
+              }, 5000);
+            }
           }
-        }, 2000); // 2 second delay as per Twilio+OpenAI docs
+        }, 5000); // 5 second initial delay
       } else {
         const errorText = await acceptResponse.text();
         logger.error(`Failed to accept call ${call_id}:`, errorText);
