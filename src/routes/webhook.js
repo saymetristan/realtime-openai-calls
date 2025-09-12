@@ -141,8 +141,8 @@ router.post('/openai/sip', async (req, res) => {
                }, delay);
              };
              
-             // Connect with short delay as per official documentation default (1000ms)
-             connectWithDelay(1000);
+             // Connect immediately as per official Twilio+OpenAI docs (delay=0)
+             connectWithDelay(0);
       } else {
         const errorText = await acceptResponse.text();
         logger.error(`Failed to accept call ${call_id}:`, errorText);
