@@ -132,23 +132,8 @@ class OpenAIService {
       // Store WebSocket connection
       this.websockets.set(callId, ws);
 
-      // Send greeting immediately when connected (don't wait for 'open' event)
-      setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          logger.logOpenAI(callId, 'sending_immediate_greeting');
-          
-          this.sendEvent(ws, callId, {
-            type: 'response.create',
-            response: {
-              instructions: `¡Gracias por llamar a ${config.business.companyName}! ¿En qué puedo ayudarte hoy?`
-            }
-          });
-        } else {
-          logger.logOpenAI(callId, 'websocket_not_ready_for_greeting', {
-            readyState: ws.readyState
-          });
-        }
-      }, 1000); // Wait 1 second for connection to be ready
+      // Note: For SIP calls, only use setupOpenAISipWebSocketHandlers
+      // The 'open' event handler will send the greeting when ready
 
       logger.logOpenAI(callId, 'openai_sip_session_created', {
         sessionId: sessionData.sessionId,
@@ -171,8 +156,8 @@ class OpenAIService {
     ws.on('open', () => {
       logger.logOpenAI(callId, 'openai_sip_websocket_connected');
       
-      // For SIP calls, the session is already configured via /accept call
-      // Just send the initial greeting response
+      // For SIP calls, DO NOT send session.update - only response.create
+      // The session is already configured via /accept call
       this.sendEvent(ws, callId, {
         type: 'response.create',
         response: {
@@ -300,6 +285,13 @@ class OpenAIService {
   }
 
   sendSessionUpdate(ws, callSid) {
+    // Check if this is a SIP session - skip session.update for SIP calls
+    const sessionData = this.activeSessions.get(callSid);
+    if (sessionData && sessionData.type === 'openai_sip') {
+      logger.logOpenAI(callSid, 'skipping_session_update_for_sip');
+      return; // Don't send session.update for SIP calls - already configured via /accept
+    }
+
     const sessionConfig = {
       type: 'session.update',
       session: {
