@@ -167,7 +167,7 @@ router.post('/openai/sip', async (req, res) => {
     
     res.status(500).json({ error: 'Failed to process OpenAI webhook' });
   }
-});
+  });
 
 // Bridge endpoint - Redirects Twilio calls to OpenAI SIP
 router.post('/twilio/bridge', validateTwilioSignature, async (req, res) => {
@@ -198,8 +198,8 @@ router.post('/twilio/bridge', validateTwilioSignature, async (req, res) => {
     res.send(twiml.toString());
   }
 });
-
-// Twilio SIP webhook endpoint - Keep for backward compatibility
+  
+  // Twilio SIP webhook endpoint - Keep for backward compatibility
 router.post('/twilio/sip', validateTwilioSignature, async (req, res) => {
   try {
     const {
