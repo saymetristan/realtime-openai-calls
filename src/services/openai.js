@@ -107,6 +107,15 @@ class OpenAIService {
         'OpenAI-Beta': 'realtime=v1'
       };
 
+      // Debug: Log connection details
+      logger.logOpenAI(callId, 'websocket_connection_details', {
+        wsUrl,
+        callId,
+        hasApiKey: !!config.openai.apiKey,
+        apiKeyPrefix: config.openai.apiKey ? config.openai.apiKey.substring(0, 7) + '...' : 'missing',
+        headers: Object.keys(headers)
+      });
+
       if (config.openai.organization) {
         headers['OpenAI-Organization'] = config.openai.organization;
       }
