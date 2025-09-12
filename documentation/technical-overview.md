@@ -42,7 +42,7 @@ Sistema de voz AI que permite realizar y recibir llamadas telefónicas utilizand
 - **Redis**: Cache para sesiones activas (opcional)
 
 ### Servicios Externos
-- **OpenAI Realtime API**: gpt-4o-realtime para conversaciones
+- **OpenAI Realtime API**: gpt-realtime para conversaciones
 - **Twilio**: Proveedor SIP para telefonía
 - **Railway/Vercel**: Hosting del backend (webhook reliability)
 

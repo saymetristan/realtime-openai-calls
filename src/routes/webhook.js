@@ -1,5 +1,6 @@
 const express = require('express');
 const twilio = require('twilio');
+const fetch = require('node-fetch');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const OpenAIService = require('../services/openai');
@@ -36,21 +37,32 @@ const validateTwilioSignature = (req, res, next) => {
   next();
 };
 
-// OpenAI SIP webhook endpoint - Official OpenAI SIP flow
+// OpenAI SIP webhook endpoint - This is the new native flow
 router.post('/openai/sip', async (req, res) => {
   try {
     const { type, data } = req.body;
     
     logger.logWebhook('OPENAI_SIP', type, {
       eventId: req.body.id,
-      callId: data?.call_id
+      callId: data?.call_id,
+      sipHeaders: data?.sip_headers
     });
 
     if (type === 'realtime.call.incoming') {
-      const { call_id } = data;
+      const { call_id, sip_headers } = data;
+      
+      // Extract phone numbers from SIP headers
+      const fromHeader = sip_headers.find(h => h.name === 'From');
+      const toHeader = sip_headers.find(h => h.name === 'To');
+      const callIdHeader = sip_headers.find(h => h.name === 'Call-ID');
+      
+      const from = fromHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
+      const to = toHeader?.value?.match(/sip:([^@]+)/)?.[1] || 'unknown';
       
       logger.logCall(call_id, 'openai_sip_call_incoming', {
-        callId: call_id
+        from,
+        to,
+        callIdHeader: callIdHeader?.value
       });
 
       // Accept the call using OpenAI REST API
@@ -107,17 +119,20 @@ router.post('/openai/sip', async (req, res) => {
       });
 
       if (acceptResponse.ok) {
-        logger.logCall(call_id, 'call_accepted');
+        logger.logCall(call_id, 'call_accepted_successfully');
         
         // Start WebSocket connection to monitor/control the call
         await OpenAIService.initializeOpenAISipSession(call_id, {
-          callId: call_id,
+          from,
+          to,
+          sipHeaders: sip_headers,
           acceptedAt: new Date()
         });
 
         logger.logCall(call_id, 'websocket_session_started');
       } else {
-        logger.error(`Failed to accept call ${call_id}:`, await acceptResponse.text());
+        const errorText = await acceptResponse.text();
+        logger.error(`Failed to accept call ${call_id}:`, errorText);
         
         // Reject the call if accept fails
         await fetch(`https://api.openai.com/v1/realtime/calls/${call_id}/reject`, {
@@ -144,6 +159,7 @@ router.post('/openai/sip', async (req, res) => {
             'Content-Type': 'application/json'
           }
         });
+        logger.logCall(data.call_id, 'call_rejected_due_to_error');
       } catch (rejectError) {
         logger.error('Failed to reject call after error:', rejectError);
       }
