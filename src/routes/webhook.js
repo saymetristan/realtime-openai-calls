@@ -77,8 +77,8 @@ router.post('/openai/sip', async (req, res) => {
           instructions: config.business.defaultInstructions,
           model: config.openai.model,
           voice: config.openai.voice,
-          input_audio_format: config.openai.audioFormat,
-          output_audio_format: config.openai.audioFormat,
+          // Note: input_audio_format and output_audio_format are NOT allowed for SIP calls
+          // OpenAI handles audio format automatically for SIP sessions
           input_audio_transcription: {
             model: 'whisper-1'
           },
