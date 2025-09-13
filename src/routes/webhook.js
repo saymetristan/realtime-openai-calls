@@ -137,16 +137,39 @@ router.post('/openai/sip', async (req, res) => {
                      delayMs: delay 
                    });
                    
-                   await OpenAIService.initializeOpenAISipSession(call_id, {
+                   const sessionData = await OpenAIService.initializeOpenAISipSession(call_id, {
                      from,
                      to,
                      sipHeaders: sip_headers,
                      acceptedAt: new Date()
                    });
                    
-                   logger.logCall(call_id, 'websocket_session_started_success', { 
-                     successfulAttempt: attempt + 1 
+                   logger.logCall(call_id, 'websocket_object_created_success', { 
+                     attempt: attempt + 1,
+                     note: 'WebSocket object created, connection in progress...'
                    });
+                   
+                   // Wait a bit to see if WebSocket actually connects
+                   await new Promise((resolve, reject) => {
+                     const ws = sessionData.ws;
+                     const timeout = setTimeout(() => {
+                       reject(new Error('WebSocket connection timeout after 10 seconds'));
+                     }, 10000);
+                     
+                     ws.on('open', () => {
+                       clearTimeout(timeout);
+                       logger.logCall(call_id, 'websocket_connection_success', { 
+                         successfulAttempt: attempt + 1 
+                       });
+                       resolve();
+                     });
+                     
+                     ws.on('error', (error) => {
+                       clearTimeout(timeout);
+                       reject(error);
+                     });
+                   });
+                   
                    return; // Success - exit retry loop
                    
                  } catch (error) {

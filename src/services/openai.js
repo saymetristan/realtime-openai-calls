@@ -124,7 +124,18 @@ class OpenAIService {
         headers['OpenAI-Project'] = config.openai.project;
       }
 
+      logger.logOpenAI(callId, 'websocket_creation_starting', {
+        wsUrl,
+        authHeader: headers.Authorization?.substring(0, 20) + '...',
+        betaHeader: headers['OpenAI-Beta'],
+        hasOrg: !!headers['OpenAI-Organization'],
+        hasProject: !!headers['OpenAI-Project']
+      });
+
       const ws = new WebSocket(wsUrl, { headers });
+
+      // Add WebSocket to session data
+      sessionData.ws = ws;
 
       // Setup WebSocket event handlers for SIP calls  
       this.setupOpenAISipWebSocketHandlers(ws, callId, sessionData);
@@ -135,9 +146,11 @@ class OpenAIService {
       // Note: Following official Twilio+OpenAI documentation pattern
       // Greeting is sent directly in ws.on('open') event handler
 
-      logger.logOpenAI(callId, 'openai_sip_session_created', {
+      logger.logOpenAI(callId, 'websocket_object_created', {
         sessionId: sessionData.sessionId,
-        wsUrl
+        wsUrl,
+        readyState: ws.readyState, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+        note: 'WebSocket object created, waiting for connection...'
       });
 
       return sessionData;
@@ -154,7 +167,11 @@ class OpenAIService {
 
   setupOpenAISipWebSocketHandlers(ws, callId, sessionData) {
     ws.on('open', () => {
-      logger.logOpenAI(callId, 'openai_sip_websocket_connected');
+      logger.logOpenAI(callId, 'openai_sip_websocket_connected', {
+        readyState: ws.readyState,
+        protocol: ws.protocol,
+        url: ws.url
+      });
       
       // Send greeting immediately as per official Twilio+OpenAI documentation
       // For SIP calls, session is already configured via /accept - only send response.create
@@ -166,7 +183,9 @@ class OpenAIService {
       };
       
       ws.send(JSON.stringify(responseCreate));
-      logger.logOpenAI(callId, 'sent_response_create_greeting');
+      logger.logOpenAI(callId, 'sent_response_create_greeting', {
+        greetingText: responseCreate.response.instructions
+      });
       
       // Update session status
       sessionData.status = 'connected';
@@ -183,7 +202,17 @@ class OpenAIService {
     });
 
     ws.on('error', (error) => {
-      logger.error(`OpenAI SIP WebSocket error for call ${callId}:`, error);
+      logger.error(`OpenAI SIP WebSocket error for call ${callId}:`, {
+        error: error.message,
+        errorCode: error.code,
+        readyState: ws.readyState,
+        stack: error.stack,
+        wsUrl: ws.url,
+        headers: {
+          auth: 'Bearer sk-proj...',
+          beta: 'realtime=v1'
+        }
+      });
       
       // Update session status
       if (this.activeSessions.has(callId)) {
